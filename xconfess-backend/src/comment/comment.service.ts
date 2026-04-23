@@ -12,7 +12,6 @@ import {
   OutboxStatus,
 } from '../common/entities/outbox-event.entity';
 import { AnonymousConfession } from '../confession/entities/confession.entity';
-import { NotificationQueue } from '../notification/notification.queue';
 import { AnonymousUser } from '../user/entities/anonymous-user.entity';
 import { User } from '../user/entities/user.entity';
 import {
@@ -49,7 +48,6 @@ export class CommentService {
     private moderationCommentRepo: Repository<ModerationComment>,
     @InjectRepository(OutboxEvent)
     private outboxRepo: Repository<OutboxEvent>,
-    private readonly notificationQueue: NotificationQueue,
     private readonly dataSource: DataSource,
     private readonly analyticsService: AnalyticsService,
   ) {}
@@ -222,7 +220,7 @@ export class CommentService {
         };
 
       default:
-        throw new BadRequestException(`Unsupported sort field: ${sortField}`);
+        throw new BadRequestException('Unsupported sort field');
     }
   }
 
