@@ -14,6 +14,8 @@ import {
   Req,
   Param,
   NotFoundException,
+  Query,
+  ForbiddenException,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { AuthService } from '../auth/auth.service';
@@ -29,6 +31,9 @@ import {
   UpdatePrivacySettingsDto,
   PrivacySettingsResponseDto,
 } from './dto/update-privacy-settings.dto';
+import { ConfessionService } from '../confession/confession.service';
+import { GetUserConfessionsDto } from '../confession/dto/get-user-confessions.dto';
+import { ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 
 /**
  * Public user response contract.
@@ -63,6 +68,7 @@ export class UserController {
   constructor(
     private readonly userService: UserService,
     private readonly authService: AuthService,
+    private readonly confessionService: ConfessionService,
   ) {}
 
   /** Maps a User entity to the public response shape — no internal fields. */
@@ -262,9 +268,26 @@ export class UserController {
   }
 
   @Get(':id/confessions')
-  async getUserConfessions(@Param('id') id: string): Promise<any[]> {
-    // Mock implementation
-    return [];
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get confessions belonging to a user (paginated)' })
+  @ApiParam({ name: 'id', description: 'User ID (numeric)' })
+  @ApiResponse({ status: 200, description: 'Returns paginated user confessions' })
+  async getUserConfessions(
+    @Param('id') id: string,
+    @Query() dto: GetUserConfessionsDto,
+    @GetUser() currentUser: User,
+  ): Promise<any> {
+    const userId = parseInt(id, 10);
+    if (isNaN(userId)) {
+      throw new BadRequestException('Invalid user ID');
+    }
+
+    // Permission check: User can only see their own confessions unless they are an admin
+    if (currentUser.id !== userId && currentUser.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('You can only view your own confessions');
+    }
+
+    return this.confessionService.getUserConfessions(userId, dto);
   }
 
   @Get(':id/activities')
