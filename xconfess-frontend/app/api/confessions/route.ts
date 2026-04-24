@@ -3,7 +3,6 @@ import { createApiErrorResponse } from "@/lib/apiErrorHandler";
 import { getApiBaseUrl } from "@/app/lib/config";
 
 const BASE_API_URL = getApiBaseUrl();
-
 export async function POST(request: Request) {
   const correlationId = request.headers.get("X-Correlation-ID") || "unknown";
 
