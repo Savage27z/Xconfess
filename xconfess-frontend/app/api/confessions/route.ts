@@ -2,7 +2,7 @@ import { normalizeConfession } from "../../lib/utils/normalizeConfession";
 import { createApiErrorResponse } from "@/lib/apiErrorHandler";
 
 const BASE_API_URL = process.env.BACKEND_API_URL;
-
+console.log(BASE_API_URL,"hey this is the BASE_API_URL")
 export async function POST(request: Request) {
   // Fail fast if backend URL is not configured
   if (!BASE_API_URL) {
