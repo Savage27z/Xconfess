@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminApi, Report } from "@/app/lib/api/admin";
+import { queryKeys } from "@/app/lib/api/queryKeys";
 import ReportDetail from "./ReportDetail";
 import { ConfirmDialog } from "@/app/components/admin/ConfirmDialog";
 import { useGlobalToast } from "@/app/components/common/Toast";
@@ -23,15 +24,16 @@ export default function ReportList() {
   const toast = useGlobalToast();
   const { triggerExport, isExporting: isExportingCsv } = useExportCSV({ label: 'reports' });
 
+  const reportListKey = queryKeys.admin.reports.list({
+    statusFilter,
+    typeFilter,
+    startDate,
+    endDate,
+    page,
+  });
+
   const { data, isLoading } = useQuery({
-    queryKey: [
-      "admin-reports",
-      statusFilter,
-      typeFilter,
-      startDate,
-      endDate,
-      page,
-    ],
+    queryKey: reportListKey,
     queryFn: () =>
       adminApi.getReports({
         status: statusFilter !== "all" ? statusFilter : undefined,
@@ -43,14 +45,81 @@ export default function ReportList() {
       }),
   });
 
+const resolveMutation = useMutation({
+  mutationFn: ({ id, notes }: { id: string; notes?: string }) =>
+    adminApi.resolveReport(id, notes),
+  onMutate: async ({ id }) => {
+    await queryClient.cancelQueries({ queryKey: queryKeys.admin.reports.all() });
+    const snapshots = queryClient.getQueriesData({ queryKey: queryKeys.admin.reports.all() });
+    queryClient.setQueriesData(
+      { queryKey: queryKeys.admin.reports.all() },
+      (old: any) => {
+        if (!old?.reports) return old;
+        return {
+          ...old,
+          reports: old.reports.map((r: Report) =>
+            r.id === id ? { ...r, status: "resolved" } : r,
+          ),
+        };
+      },
+    );
+    return { snapshots };
+  },
+  onError: (_err, _vars, context) => {
+    context?.snapshots?.forEach(([key, data]) => {
+      queryClient.setQueryData(key, data);
+    });
+  },
+  onSuccess: () => {
+    toast.success("Report resolved.");
+  },
+  onSettled: () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.admin.reports.all() });
+    setSelectedReport(null);
+  },
+});
+
+const dismissMutation = useMutation({
+  mutationFn: ({ id, notes }: { id: string; notes?: string }) =>
+    adminApi.dismissReport(id, notes),
+  onMutate: async ({ id }) => {
+    await queryClient.cancelQueries({ queryKey: queryKeys.admin.reports.all() });
+    const snapshots = queryClient.getQueriesData({ queryKey: queryKeys.admin.reports.all() });
+    queryClient.setQueriesData(
+      { queryKey: queryKeys.admin.reports.all() },
+      (old: any) => {
+        if (!old?.reports) return old;
+        return {
+          ...old,
+          reports: old.reports.map((r: Report) =>
+            r.id === id ? { ...r, status: "dismissed" } : r,
+          ),
+        };
+      },
+    );
+    return { snapshots };
+  },
+  onError: (_err, _vars, context) => {
+    context?.snapshots?.forEach(([key, data]) => {
+      queryClient.setQueryData(key, data);
+    });
+  },
+  onSuccess: () => {
+    toast.success("Report dismissed.");
+  },
+  onSettled: () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.admin.reports.all() });
+    setSelectedReport(null);
+  },
+});
   const bulkResolveMutation = useMutation({
     mutationFn: ({ ids, notes }: { ids: string[]; notes?: string }) =>
       adminApi.bulkResolveReports(ids, notes),
     onMutate: async ({ ids }) => {
-      await queryClient.cancelQueries({ queryKey: ["admin-reports"] });
-      const previousData = queryClient.getQueryData(["admin-reports"]);
+      await queryClient.cancelQueries({ queryKey: queryKeys.admin.reports.all() });
+      const snapshots = queryClient.getQueriesData({ queryKey: queryKeys.admin.reports.all() });
       queryClient.setQueriesData(
-        { queryKey: ["admin-reports"] },
+        { queryKey: queryKeys.admin.reports.all() },
         (old: any) => {
           if (!old?.reports) return old;
           return {
@@ -61,21 +130,18 @@ export default function ReportList() {
           };
         },
       );
-      return { previousData };
+      return { snapshots };
     },
-    onError: (err, variables, context) => {
-      if (context?.previousData) {
-        queryClient.setQueriesData(
-          { queryKey: ["admin-reports"] },
-          context.previousData,
-        );
-      }
+    onError: (_err, _vars, context) => {
+      context?.snapshots?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
     },
     onSuccess: () => {
       toast.success("Selected reports resolved.");
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.admin.reports.all() });
     },
   });
 

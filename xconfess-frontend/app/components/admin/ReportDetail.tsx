@@ -10,6 +10,7 @@ import {
   ReportModerationTimeline,
   buildReportModerationTimeline,
 } from '@/app/components/admin/ReportModerationTimeline';
+import { queryKeys } from '@/app/lib/api/queryKeys';
 
 interface ReportDetailProps {
   report: Report;
@@ -98,7 +99,7 @@ export default function ReportDetail({
   const [reportAuditQ, confessionAuditQ] = useQueries({
     queries: [
       {
-        queryKey: ['admin-audit-logs', 'report', report.id],
+        queryKey: queryKeys.admin.auditLogs.byEntity('report', report.id),
         queryFn: () =>
           adminApi.getAuditLogs({
             entityType: 'report',
@@ -107,7 +108,7 @@ export default function ReportDetail({
           }),
       },
       {
-        queryKey: ['admin-audit-logs', 'confession', report.confessionId],
+        queryKey: queryKeys.admin.auditLogs.byEntity('confession', report.confessionId),
         queryFn: () =>
           adminApi.getAuditLogs({
             entityType: 'confession',
