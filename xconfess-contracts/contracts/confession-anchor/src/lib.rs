@@ -82,6 +82,9 @@ pub struct UpgradeCompatibilityPolicy {
 pub struct ConfessionAnchoredEvent {
     #[topic]
     pub hash: BytesN<32>,
+    /// Explicit schema discriminator for backend decoders.
+    /// Bump `events::EVENT_SCHEMA_VERSION` when the payload shape changes.
+    pub event_version: u32,
     pub timestamp: u64,
     pub anchor_height: u32,
 }
@@ -213,9 +216,10 @@ impl ConfessionAnchor {
 
         // Emit ConfessionAnchored event:
         // topics: ("confession_anchor", hash)
-        // data: (timestamp, anchor_height)
+        // data: (event_version, timestamp, anchor_height)
         ConfessionAnchoredEvent {
             hash: hash.clone(),
+            event_version: events::EVENT_SCHEMA_VERSION,
             timestamp,
             anchor_height,
         }
@@ -713,14 +717,19 @@ mod test {
         assert_eq!(events.len(), 1);
 
         // events().all() returns Vec<(ContractId, Topics, Data)>
-        // Data is (timestamp: u64, anchor_height: u32) as encoded Val.
+        // Data is (event_version: u32, timestamp: u64, anchor_height: u32) as encoded Val.
         let (_contract_id, _topics, data) = events.first().unwrap();
 
-        // Decode the data tuple — Soroban encodes as a two-element Vec<Val>.
-        let decoded: (u64, u32) = data.into_val(&env);
-        assert_eq!(decoded.0, ts, "event data must carry the input timestamp");
+        // Decode the data tuple — Soroban encodes as a Vec<Val>.
+        let decoded: (u32, u64, u32) = data.into_val(&env);
         assert_eq!(
-            decoded.1, 77,
+            decoded.0,
+            events::EVENT_SCHEMA_VERSION,
+            "event data must carry an explicit schema discriminator"
+        );
+        assert_eq!(decoded.1, ts, "event data must carry the input timestamp");
+        assert_eq!(
+            decoded.2, 77,
             "event data must carry the ledger sequence as anchor_height"
         );
     }
