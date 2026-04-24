@@ -82,13 +82,19 @@ pub struct UpgradeCompatibilityPolicy {
 pub struct ConfessionAnchoredEvent {
     #[topic]
     pub hash: BytesN<32>,
+    /// Explicit schema discriminator for backend decoders.
+    /// Bump `events::EVENT_SCHEMA_VERSION` when the payload shape changes.
+    pub event_version: u32,
     pub timestamp: u64,
     pub anchor_height: u32,
 }
 
-#[contractevent(topics = ["ver_check"], data_format = "vec")]
+#[contractevent(topics = ["version_compatibility_checked"], data_format = "vec")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VersionCompatibilityCheckedEvent {
+    pub event_version: u32,
+    pub nonce: u64,
+    pub timestamp: u64,
     pub from_major: u32,
     pub from_minor: u32,
     pub from_patch: u32,
@@ -213,13 +219,15 @@ impl ConfessionAnchor {
 
         // Emit ConfessionAnchored event:
         // topics: ("confession_anchor", hash)
-        // data: (timestamp, anchor_height)
+        // data: (event_version, timestamp, anchor_height)
         ConfessionAnchoredEvent {
-            hash: hash.clone(),
-            timestamp,
-            anchor_height,
-        }
-        .publish(&env);
+              content_hash: hash.clone(),
+              event_version: events::CONFESSION_ANCHORED_EVENT_VERSION,
+              nonce: events::bump_nonce(env, &events::EventNonceKey::ConfessionAnchor(hash.clone())),
+              timestamp,
+              anchor_height,
+          }
+          .publish(&env);
 
         symbol_short!("anchored")
     }
@@ -328,15 +336,18 @@ impl ConfessionAnchor {
         let compatible = Self::can_upgrade_from(env.clone(), from_major, from_minor, from_patch);
 
         VersionCompatibilityCheckedEvent {
-            from_major,
-            from_minor,
-            from_patch,
-            to_major: CONTRACT_SEMVER_MAJOR,
-            to_minor: CONTRACT_SEMVER_MINOR,
-            to_patch: CONTRACT_SEMVER_PATCH,
-            compatible,
-        }
-        .publish(&env);
+              event_version: events::VERSION_COMPATIBILITY_CHECKED_EVENT_VERSION,
+              nonce: events::bump_nonce(env, &events::EventNonceKey::VersionCompatibilityCheck(from_major, from_minor, from_patch)),
+              timestamp: env.ledger().timestamp(),
+              from_major,
+              from_minor,
+              from_patch,
+              to_major: CONTRACT_SEMVER_MAJOR,
+              to_minor: CONTRACT_SEMVER_MINOR,
+              to_patch: CONTRACT_SEMVER_PATCH,
+              compatible,
+          }
+          .publish(&env);
 
         if compatible {
             Ok(())
@@ -713,14 +724,19 @@ mod test {
         assert_eq!(events.len(), 1);
 
         // events().all() returns Vec<(ContractId, Topics, Data)>
-        // Data is (timestamp: u64, anchor_height: u32) as encoded Val.
+        // Data is (event_version: u32, timestamp: u64, anchor_height: u32) as encoded Val.
         let (_contract_id, _topics, data) = events.first().unwrap();
 
-        // Decode the data tuple — Soroban encodes as a two-element Vec<Val>.
-        let decoded: (u64, u32) = data.into_val(&env);
-        assert_eq!(decoded.0, ts, "event data must carry the input timestamp");
+        // Decode the data tuple — Soroban encodes as a Vec<Val>.
+        let decoded: (u32, u64, u32) = data.into_val(&env);
         assert_eq!(
-            decoded.1, 77,
+            decoded.0,
+            events::EVENT_SCHEMA_VERSION,
+            "event data must carry an explicit schema discriminator"
+        );
+        assert_eq!(decoded.1, ts, "event data must carry the input timestamp");
+        assert_eq!(
+            decoded.2, 77,
             "event data must carry the ledger sequence as anchor_height"
         );
     }
