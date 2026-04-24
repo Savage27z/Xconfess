@@ -440,3 +440,205 @@ fn test_mint_and_award_can_coexist() {
     assert_eq!(award_id, 2);
     assert_eq!(client.get_badge_count(&user), 2);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Read interface tests (Issue 816)
+// Pins the stable read surface required by backend and frontend consumers.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn get_badge_type_metadata_returns_none_before_create() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(ReputationBadges, ());
+    let client = ReputationBadgesClient::new(&env, &contract_id);
+
+    let result = client.get_badge_type_metadata(&BadgeType::ConfessionStarter);
+    assert!(
+        result.is_none(),
+        "metadata must not exist before create_badge is called"
+    );
+}
+
+#[test]
+fn get_badge_type_metadata_returns_correct_values_after_create() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(ReputationBadges, ());
+    let client = ReputationBadgesClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    client.create_badge(
+        &BadgeType::ConfessionStarter,
+        &String::from_str(&env, "First Confession"),
+        &String::from_str(&env, "Posted your first confession"),
+        &String::from_str(&env, "Post at least one confession"),
+    );
+
+    let meta = client.get_badge_type_metadata(&BadgeType::ConfessionStarter);
+    assert!(
+        meta.is_some(),
+        "metadata must be present after create_badge"
+    );
+
+    let meta = meta.unwrap();
+    assert_eq!(meta.name, String::from_str(&env, "First Confession"));
+    assert_eq!(
+        meta.description,
+        String::from_str(&env, "Posted your first confession")
+    );
+    assert_eq!(
+        meta.criteria,
+        String::from_str(&env, "Post at least one confession")
+    );
+}
+
+#[test]
+fn has_badge_type_metadata_reflects_create_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(ReputationBadges, ());
+    let client = ReputationBadgesClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    assert!(!client.has_badge_type_metadata(&BadgeType::PopularVoice));
+
+    client.create_badge(
+        &BadgeType::PopularVoice,
+        &String::from_str(&env, "Popular Voice"),
+        &String::from_str(&env, "Received 100+ reactions"),
+        &String::from_str(&env, "Earn 100 reactions on your confessions"),
+    );
+
+    assert!(client.has_badge_type_metadata(&BadgeType::PopularVoice));
+    assert!(
+        !client.has_badge_type_metadata(&BadgeType::GenerousSoul),
+        "unrelated type must remain absent"
+    );
+}
+
+#[test]
+fn get_badge_type_metadata_is_independent_per_badge_type() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(ReputationBadges, ());
+    let client = ReputationBadgesClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    client.create_badge(
+        &BadgeType::GenerousSoul,
+        &String::from_str(&env, "Generous Soul"),
+        &String::from_str(&env, "Tipped 10+ confessions"),
+        &String::from_str(&env, "Tip at least 10 confessions"),
+    );
+
+    assert!(client
+        .get_badge_type_metadata(&BadgeType::GenerousSoul)
+        .is_some());
+    assert!(client
+        .get_badge_type_metadata(&BadgeType::CommunityHero)
+        .is_none());
+    assert!(client
+        .get_badge_type_metadata(&BadgeType::TopReactor)
+        .is_none());
+}
+
+#[test]
+fn get_user_badge_summary_returns_empty_for_new_user() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(ReputationBadges, ());
+    let client = ReputationBadgesClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+    let (badge_ids, reputation) = client.get_user_badge_summary(&user);
+
+    assert_eq!(badge_ids.len(), 0, "new user must have no badges");
+    assert_eq!(reputation, 0i128, "new user reputation must be zero");
+}
+
+#[test]
+fn get_user_badge_summary_reflects_awarded_badges_and_reputation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(ReputationBadges, ());
+    let client = ReputationBadgesClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    client.initialize(&admin);
+
+    client.award_badge(&user, &BadgeType::ConfessionStarter);
+    client.award_badge(&user, &BadgeType::PopularVoice);
+    client.adjust_reputation(&user, &200i128, &String::from_str(&env, "great content"));
+
+    let (badge_ids, reputation) = client.get_user_badge_summary(&user);
+
+    assert_eq!(
+        badge_ids.len(),
+        2,
+        "summary must include both awarded badges"
+    );
+    assert_eq!(
+        reputation, 200i128,
+        "summary must reflect current reputation"
+    );
+}
+
+#[test]
+fn get_user_badge_summary_badge_ids_match_individual_queries() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(ReputationBadges, ());
+    let client = ReputationBadgesClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    client.initialize(&admin);
+
+    let id1 = client.award_badge(&user, &BadgeType::ConfessionStarter);
+    let id2 = client.award_badge(&user, &BadgeType::CommunityHero);
+
+    let (summary_ids, _) = client.get_user_badge_summary(&user);
+
+    assert!(
+        summary_ids.contains(id1),
+        "summary must contain first badge id"
+    );
+    assert!(
+        summary_ids.contains(id2),
+        "summary must contain second badge id"
+    );
+}
+
+#[test]
+fn read_interfaces_do_not_require_auth() {
+    let env = Env::default();
+    // Deliberately do NOT call env.mock_all_auths() — read-only calls must succeed.
+
+    let contract_id = env.register(ReputationBadges, ());
+    let client = ReputationBadgesClient::new(&env, &contract_id);
+    let user = Address::generate(&env);
+
+    // All read functions must succeed without any auth mocking.
+    let _ = client.get_badge_type_metadata(&BadgeType::TopReactor);
+    let _ = client.has_badge_type_metadata(&BadgeType::TopReactor);
+    let _ = client.get_user_badge_summary(&user);
+    let _ = client.get_badge_count(&user);
+    let _ = client.get_user_reputation(&user);
+    let _ = client.has_badge(&user, &BadgeType::GenerousSoul);
+    let _ = client.get_total_badges();
+}
