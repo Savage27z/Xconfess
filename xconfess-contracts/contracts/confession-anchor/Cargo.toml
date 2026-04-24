@@ -16,3 +16,7 @@ soroban-sdk = { workspace = true, features = ["testutils"] }
 [[test]]
 name = "adversarial"
 path = "tests/adversarial.rs"
+
+[[test]]
+name = "benchmarks"
+path = "tests/benchmarks.rs"
